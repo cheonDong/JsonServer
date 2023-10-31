@@ -44,4 +44,9 @@ public:
 
     // HTTP 夸没 贸府
     void HandleHttpRequest(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
+
+	void SendHttpGetRequest();
+
+	// HTTP 夸没 贸府
+	void HandleHttpGetRequest(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
 };

@@ -7,7 +7,8 @@
 #include "Misc/FileHelper.h"    // 언리얼 엔진에서 파일 및 디렉토리 관련 작업을 수행하기 위한 함수와 클래스를 포함하는 헤더파일
 #include "Serialization/JsonReader.h"   // 언리얼 엔진에서 JSON파일을 읽어오기 위한 JSON Reader 클래스와 관련된 기능을포함하는 헤더파일
 #include "Serialization/JsonSerializer.h"   // 언리얼 엔진에서 JSON 파일을 직렬화 및 역직렬화 하는데 사용되는 함수와 클래스를 포함하는 헤더파일
-
+#include "JsonUtilities.h"
+#include "Json.h"
 
 AMyGameModeBase::AMyGameModeBase()
 {
@@ -18,7 +19,7 @@ AMyGameModeBase::AMyGameModeBase()
 
 void AMyGameModeBase::SendHttpRequest()
 {
-    FString EC2IpAddress = "13.209.50.102";
+    FString EC2IpAddress = "13.209.50.102/phpinfo.php"; // phpinfo.php 파일을 ec2에 생성 후 여기다가 json data를 저장할 예정
     int32 Port = 80; // 웹 서버의 포트 (일반적으로 80)
 
     FString JsonString; // JSON 파일의 내용을 저장할 FString 변수를 선언.
@@ -35,7 +36,8 @@ void AMyGameModeBase::SendHttpRequest()
     HTTPRequest = Http->CreateRequest();
     HTTPRequest->SetVerb("POST"); // POST 방식으로 요청
     HTTPRequest->SetHeader("Content-Type", "application/json"); // JSON 데이터를 전송할 것임
-    HTTPRequest->SetURL(FString::Printf(TEXT("http://%s:%d"), *EC2IpAddress, Port));
+    // HTTPRequest->SetURL(FString::Printf(TEXT("http://%s:%d"), *EC2IpAddress, Port));
+    HTTPRequest->SetURL(EC2IpAddress);
     HTTPRequest->SetContentAsString(JsonString); // JSON 데이터를 요청 본문에 설정
 
     // 요청 보내기
@@ -50,39 +52,92 @@ void AMyGameModeBase::HandleHttpRequest(FHttpRequestPtr Request, FHttpResponsePt
         // HTTP 요청 성공 시의 처리
         FString ResponseData = Response->GetContentAsString();
         FString ResponseURL = Response->GetURL();
+        int32 ResponseCode = Response->GetResponseCode();
         UE_LOG(LogTemp, Warning, TEXT("HTTP ResponseURL: %s"), *ResponseURL);
         UE_LOG(LogTemp, Warning, TEXT("HTTP ResponseData: %s"), *ResponseData);
+        UE_LOG(LogTemp, Warning, TEXT("HTTP Responsecode: %d"), ResponseCode);
 
-        // 응답 데이터를 JSON으로 파싱
-        TSharedPtr<FJsonObject> JsonObject;
-        TSharedRef<TJsonReader<TCHAR>> JsonReader = TJsonReaderFactory<TCHAR>::Create(ResponseData);
-
-        if (FJsonSerializer::Deserialize(JsonReader, JsonObject))
+        if (ResponseCode == 200)
         {
-            // JSON 데이터가 파싱되면 여기에서 처리
-            FString Key1Value;
-            int32 Key2Value;
+            // 응답 데이터를 JSON으로 파싱
+            TSharedPtr<FJsonObject> JsonObject;
+            TSharedRef<TJsonReader<TCHAR>> JsonReader = TJsonReaderFactory<TCHAR>::Create(ResponseData);
 
-            if (JsonObject->TryGetStringField("name", Key1Value))
+            if (FJsonSerializer::Deserialize(JsonReader, JsonObject))
             {
-                // key1의 값을 가져옴
-                UE_LOG(LogTemp, Warning, TEXT("name: %s"), *Key1Value);
+                SendHttpGetRequest();
             }
-
-            if (JsonObject->TryGetNumberField("age", Key2Value))
+            else
             {
-                // key2의 값을 가져옴
-                UE_LOG(LogTemp, Warning, TEXT("age: %d"), Key2Value);
+                UE_LOG(LogTemp, Error, TEXT("Failed to parse JSON response"));
             }
-        }
-        else
-        {
-            UE_LOG(LogTemp, Error, TEXT("Failed to parse JSON response"));
         }
     }
     else
     {
         // HTTP 요청 실패 시의 처리
-       UE_LOG(LogTemp, Error, TEXT("HTTP Request failed"));
+        UE_LOG(LogTemp, Error, TEXT("HTTP Request failed"));
+    }
+}
+
+void AMyGameModeBase::SendHttpGetRequest()
+{
+    FString EC2IpAddress = "13.209.50.102/phpinfo.php";
+
+    TSharedRef<IHttpRequest> Request = FHttpModule::Get().CreateRequest();
+    Request->SetURL(EC2IpAddress);
+    Request->SetVerb("GET"); // GET 요청을 보냅니다.
+
+    Request->OnProcessRequestComplete().BindUObject(this, &AMyGameModeBase::HandleHttpGetRequest);
+
+    Request->ProcessRequest();
+}
+
+void AMyGameModeBase::HandleHttpGetRequest(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
+{
+    if (bWasSuccessful && Response.IsValid())
+    {
+        // HTTP 요청 성공 시의 처리
+        FString ResponseData = Response->GetContentAsString();
+        FString ResponseURL = Response->GetURL();
+        int32 ResponseCode = Response->GetResponseCode();
+        UE_LOG(LogTemp, Warning, TEXT("HTTP ResponseURL: %s"), *ResponseURL);
+        UE_LOG(LogTemp, Warning, TEXT("HTTP ResponseData: %s"), *ResponseData);
+        UE_LOG(LogTemp, Warning, TEXT("HTTP Responsecode: %d"), ResponseCode);
+
+        if (ResponseCode == 200)
+        {
+            // 응답 데이터를 JSON으로 파싱
+            TSharedPtr<FJsonObject> JsonObject;
+            TSharedRef<TJsonReader<TCHAR>> JsonReader = TJsonReaderFactory<TCHAR>::Create(ResponseData);
+
+            if (FJsonSerializer::Deserialize(JsonReader, JsonObject))
+            {
+                // JSON 데이터가 파싱되면 여기에서 처리
+                FString Key1Value;
+                int32 Key2Value;
+
+                if (JsonObject->TryGetStringField("name", Key1Value))
+                {
+                    // key1의 값을 가져옴
+                    UE_LOG(LogTemp, Warning, TEXT("name: %s"), *Key1Value);
+                }
+
+                if (JsonObject->TryGetNumberField("age", Key2Value))
+                {
+                    // key2의 값을 가져옴
+                    UE_LOG(LogTemp, Warning, TEXT("age: %d"), Key2Value);
+                }
+            }
+            else
+            {
+                UE_LOG(LogTemp, Error, TEXT("Failed to parse JSON response"));
+            }
+        }
+    }
+    else
+    {
+        // HTTP 요청 실패 시의 처리
+        UE_LOG(LogTemp, Error, TEXT("HTTP Request failed"));
     }
 }
